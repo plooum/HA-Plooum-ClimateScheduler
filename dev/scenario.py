@@ -232,6 +232,34 @@ async def main() -> None:
 
         check("subscription events received", len(c.events) > 5, len(c.events))
 
+        # Thermostats that turn themselves off (eco mode, standby): no override, never forced back on.
+        base = next(p for p in (await c.call("get"))["result"]["config"]["programs"] if p["id"] == chambres)
+        r = await c.call("program/save", program={**base, "self_off": True, "profiles": {"default": week([("00:00", 18)])}})
+        check("self_off saved", r["success"] and r["result"]["self_off"] is True, r)
+        print("… waiting the 60 s grace after the engine's last command")
+        await asyncio.sleep(61)
+        await c.service("climate", "set_hvac_mode", {"entity_id": "climate.chambre_1", "hvac_mode": "off"})
+        await asyncio.sleep(2)
+        overrides = (await c.call("get"))["result"]["status"][chambres]["overrides"]
+        check("self_off: going off by itself is no override", not overrides, overrides)
+        await c.call("program/save", program={**base, "self_off": True, "profiles": {"default": week([("00:00", 20)])}})
+        s = await wait_for(c, "climate.chambre_1", lambda s: s["attributes"].get("temperature") == 20)
+        check("self_off: a new slot sets the target but leaves it off", s["state"] == "off" and s["attributes"]["temperature"] == 20, s)
+        s2 = await c.state("climate.chambre_2")
+        check("self_off: a thermostat that is on gets the slot as usual", s2["state"] == "heat" and s2["attributes"]["temperature"] == 20, s2)
+        await c.call("program/save", program={**base, "self_off": True, "profiles": {"default": week([("00:00", "off")])}})
+        s = await wait_for(c, "climate.chambre_2", lambda s: s["state"] == "off")
+        check("self_off: an off slot still turns them off", s["state"] == "off", s)
+        await c.call("program/save", program={**base, "self_off": True, "profiles": {"default": week([("00:00", 21)])}})
+        s = await wait_for(c, "climate.chambre_1", temp(21))
+        check("self_off: after an off slot the engine turns back on what it turned off", s["state"] == "heat" and temp(21)(s), s)
+        print("… waiting the 60 s grace again")
+        await asyncio.sleep(61)
+        await c.service("climate", "set_temperature", {"entity_id": "climate.chambre_2", "temperature": 24})
+        await asyncio.sleep(2)
+        overrides = (await c.call("get"))["result"]["status"][chambres]["overrides"]
+        check("self_off: a manual target is still an override", overrides.get("climate.chambre_2", {}).get("value") == 24, overrides)
+
         # Delete: entities gone.
         await c.call("program/delete", program_id=chambres)
         await asyncio.sleep(1)

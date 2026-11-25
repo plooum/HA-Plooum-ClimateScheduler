@@ -36,6 +36,7 @@ Le moteur doit tourner côté serveur (une carte ne s'exécute que quand un tabl
       "entities": ["climate.salon"],
       "enabled": true,
       "hvac_mode": null,
+      "self_off": false,
       "profiles": {
         "default": {
           "mon": [ { "at": "00:00", "value": 17 }, { "at": "17:00", "value": 21 } ],
@@ -56,6 +57,7 @@ Le moteur doit tourner côté serveur (une carte ne s'exécute que quand un tabl
 - **Fonction en escalier** : chaque point vaut jusqu'au point suivant, il n'y a ni trou ni chevauchement. Le dernier point d'un jour tient jusqu'au premier point du jour suivant ; un jour sans point continue donc la veille. La carte pose toujours un point à `00:00`, mais le moteur ne l'exige pas.
 - **Valeur** : une température (dans l'unité de HA) ou `"off"` (thermostat éteint : `hvac_mode: off`).
 - **Un thermostat n'appartient qu'à un programme** (refusé à l'enregistrement sinon).
+- `self_off` (faux par défaut, décision du 2026-11-25 pour un poêle en mode éco) : les thermostats du programme s'éteignent et se rallument d'eux-mêmes (veille). Le moteur ne rallume alors que ceux qu'il a éteints lui-même (créneau `off`, mémorisé et persistant) ; un thermostat éteint d'une autre façon ne reçoit que sa consigne au changement de créneau, sans `hvac_mode`, et son passage à éteint n'est pas une dérogation. Une consigne changée à la main reste une dérogation.
 - `hvac_mode` (facultatif) : le mode à mettre quand un créneau en température suit un créneau `off` ou trouve le thermostat éteint. Par défaut : le mode actuel s'il n'est pas `off`, sinon `heat`, `heat_cool` ou `auto` (le premier que le thermostat accepte).
 - Heures `HH:MM` à la minute ; la carte travaille au pas de 15 min.
 

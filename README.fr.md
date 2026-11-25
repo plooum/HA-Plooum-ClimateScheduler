@@ -43,6 +43,7 @@ data:
 - Un créneau *éteint* éteint les thermostats (`hvac_mode: off`) ; le créneau en température suivant les rallume (dans leur mode précédent, sinon `heat`).
 - Les températures restent entre le minimum et le maximum du thermostat.
 - Un thermostat indisponible reçoit le créneau en cours dès qu'il revient.
+- **Thermostats qui s'éteignent tout seuls** (mode éco d'un poêle à pellets, veille) : cochez *Le thermostat s'éteint tout seul* dans les réglages du programme. Le programmateur ne rallume alors que ce qu'il a éteint lui-même (créneau Éteint) ; un thermostat éteint de lui-même reçoit seulement sa nouvelle consigne au changement de créneau et se rallume seul, et son extinction n'est pas un changement manuel.
 - Un changement manuel, c'est la température de consigne, ou éteindre / allumer le thermostat ; changer son mode (chauffage → auto) n'en est pas un. Les changements signalés dans les 60 secondes qui suivent une commande du programmateur ne sont comparés qu'à la fin de ce délai (certains thermostats renvoient d'abord un état périmé).
 - Les changements manuels survivent à un redémarrage. Changer de profil, enregistrer ou activer un programme, et `clear_override` y mettent fin.
 - Les heures suivent le fuseau de Home Assistant. La nuit du passage à l'heure d'été, un changement placé dans l'heure sautée (02:30) a lieu une heure plus tard.

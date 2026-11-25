@@ -43,6 +43,7 @@ data:
 - A slot set to *off* turns the thermostats off (`hvac_mode: off`); the next temperature slot turns them back on (in their previous mode, else `heat`).
 - Temperatures are kept between the thermostat's minimum and maximum.
 - A thermostat that is unavailable gets the current slot as soon as it comes back.
+- **Thermostats that turn themselves off** (a pellet stove's eco mode, a standby): tick *The thermostat turns itself off* in the program's settings. The scheduler then only turns back on what it turned off itself (an Off slot); a thermostat that went off on its own just gets its new target at the next change and relights by itself, and going off is not a manual change.
 - A manual change is the target temperature, or turning the thermostat off or on; changing its mode (heat → auto) is not one. Changes reported in the 60 seconds after the scheduler's own command are only compared at the end of that delay (some thermostats first report a stale state).
 - Manual changes survive a restart. Switching profile, saving or turning a program on, and `clear_override` end them.
 - Times follow Home Assistant's time zone. On the night clocks go forward, a change set inside the skipped hour (02:30) happens one hour later.
