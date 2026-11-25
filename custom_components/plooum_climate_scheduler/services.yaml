@@ -1,0 +1,15 @@
+set_profile:
+  fields:
+    profile:
+      required: true
+      example: Holidays
+      selector:
+        text:
+clear_override:
+  fields:
+    entity_id:
+      required: false
+      selector:
+        entity:
+          domain: climate
+          multiple: true

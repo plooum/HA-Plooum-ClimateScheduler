@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Plooum Climate Scheduler",
+        "description": "Week schedules for your thermostats, with house-wide profiles. Programs and profiles are made in the Plooum climate schedule card."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Plooum Climate Scheduler is already set up."
+    }
+  },
+  "entity": {
+    "select": { "profile": { "name": "Profile" } },
+    "switch": { "schedule": { "name": "Schedule" } },
+    "sensor": { "scheduled_temperature": { "name": "Scheduled temperature" } }
+  },
+  "services": {
+    "set_profile": {
+      "name": "Set profile",
+      "description": "Switches the whole house to a profile (Default, Holidays…).",
+      "fields": {
+        "profile": { "name": "Profile", "description": "Name of the profile." }
+      }
+    },
+    "clear_override": {
+      "name": "Clear override",
+      "description": "Gives thermostats changed by hand back to their schedule now, instead of at the next change.",
+      "fields": {
+        "entity_id": { "name": "Thermostats", "description": "The thermostats. Empty: all of them." }
+      }
+    }
+  }
+}

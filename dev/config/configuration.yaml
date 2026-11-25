@@ -1,0 +1,81 @@
+# Development Home Assistant for Plooum Climate Scheduler. Started by dev/ha.sh.
+homeassistant:
+  name: Climate Scheduler Dev
+  unit_system: metric
+  time_zone: Europe/Paris
+  country: FR
+  language: en
+  auth_providers:
+    - type: trusted_networks
+      trusted_networks:
+        - 127.0.0.1/32
+        - "::1/128"
+      allow_bypass_login: true
+    - type: homeassistant
+
+# No `http:` block: dev/ha.sh seeds .storage/http (127.0.0.1:8132).
+frontend:
+config:
+recorder:
+logger:
+  default: warning
+  logs:
+    custom_components.plooum_climate_scheduler: debug
+
+# Three fake rooms: a heater (input_boolean) and a temperature (input_number) each, under a
+# generic_thermostat. The temperatures don't move by themselves: set them with the input_numbers.
+input_boolean:
+  salon_heater:
+  chambre_1_heater:
+  chambre_2_heater:
+
+input_number:
+  salon_temperature: &temp
+    min: 5
+    max: 30
+    step: 0.1
+    initial: 19
+    unit_of_measurement: "°C"
+  chambre_1_temperature: *temp
+  chambre_2_temperature: *temp
+
+template:
+  - sensor:
+      - name: Salon temperature
+        unique_id: salon_temperature
+        state: "{{ states('input_number.salon_temperature') }}"
+        unit_of_measurement: "°C"
+        device_class: temperature
+      - name: Chambre 1 temperature
+        unique_id: chambre_1_temperature
+        state: "{{ states('input_number.chambre_1_temperature') }}"
+        unit_of_measurement: "°C"
+        device_class: temperature
+      - name: Chambre 2 temperature
+        unique_id: chambre_2_temperature
+        state: "{{ states('input_number.chambre_2_temperature') }}"
+        unit_of_measurement: "°C"
+        device_class: temperature
+
+climate:
+  - platform: generic_thermostat
+    name: Salon
+    unique_id: salon
+    heater: input_boolean.salon_heater
+    target_sensor: sensor.salon_temperature
+    initial_hvac_mode: heat
+    target_temp_step: 0.5
+  - platform: generic_thermostat
+    name: Chambre 1
+    unique_id: chambre_1
+    heater: input_boolean.chambre_1_heater
+    target_sensor: sensor.chambre_1_temperature
+    initial_hvac_mode: heat
+    target_temp_step: 0.5
+  - platform: generic_thermostat
+    name: Chambre 2
+    unique_id: chambre_2
+    heater: input_boolean.chambre_2_heater
+    target_sensor: sensor.chambre_2_temperature
+    initial_hvac_mode: heat
+    target_temp_step: 0.5

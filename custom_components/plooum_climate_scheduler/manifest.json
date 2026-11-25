@@ -1,0 +1,14 @@
+{
+  "domain": "plooum_climate_scheduler",
+  "name": "Plooum Climate Scheduler",
+  "codeowners": ["@plooum"],
+  "config_flow": true,
+  "dependencies": ["climate", "websocket_api"],
+  "documentation": "https://github.com/plooum/HA-Plooum-ClimateScheduler",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/plooum/HA-Plooum-ClimateScheduler/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}
