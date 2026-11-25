@@ -35,6 +35,8 @@ from . import schedule
 from .const import DOMAIN, GRACE_SECONDS, SIGNAL_PROGRAM_ADDED, STORAGE_KEY, STORAGE_VERSION
 from .schedule import DEFAULT_PROFILE, OFF, Slot, Value
 
+DEFAULT_PALETTE = (15.0, 17.0, 19.0, 21.0)
+
 _LOGGER = logging.getLogger(__name__)
 
 # unique_id suffixes of a program's entities, by platform
@@ -261,6 +263,7 @@ class Scheduler:
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self.profiles: list[dict[str, str]] = [{"id": DEFAULT_PROFILE, "name": "Default"}]
         self.active_profile = DEFAULT_PROFILE
+        self.palette: list[float] = list(DEFAULT_PALETTE)
         self.runners: dict[str, ProgramRunner] = {}
         self._listeners: list[Callable[[], None]] = []
         self._started = False
@@ -272,6 +275,7 @@ class Scheduler:
         self.profiles = data.get("profiles") or self.profiles
         ids = {p["id"] for p in self.profiles}
         self.active_profile = data.get("active_profile") if data.get("active_profile") in ids else DEFAULT_PROFILE
+        self.palette = data.get("palette", self.palette)
         overrides = data.get("overrides", {})
         for program in data.get("programs", []):
             saved = {
@@ -331,6 +335,7 @@ class Scheduler:
         return {
             "profiles": [dict(p) for p in self.profiles],
             "active_profile": self.active_profile,
+            "palette": list(self.palette),
             "programs": [r.program for r in self.runners.values()],
         }
 
@@ -452,6 +457,15 @@ class Scheduler:
         self.save()
         self.notify()
         return out
+
+    @callback
+    def save_palette(self, values: list[Any]) -> list[float]:
+        """The temperatures offered first in the card (any other can be set on a slot)."""
+        palette = sorted({float(schedule.validate_value(v)) for v in values if v != OFF})
+        self.palette = palette
+        self.save()
+        self.notify()
+        return palette
 
     @callback
     def set_active_profile(self, profile_id: str) -> None:
