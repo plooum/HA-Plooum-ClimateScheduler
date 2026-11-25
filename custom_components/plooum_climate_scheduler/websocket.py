@@ -18,7 +18,7 @@ PREFIX = f"{DOMAIN}/"
 @callback
 def async_register(hass: HomeAssistant) -> None:
     for command in (ws_get, ws_subscribe, ws_save_program, ws_delete_program, ws_save_profiles,
-                    ws_activate_profile, ws_clear_override):
+                    ws_activate_profile, ws_clear_override, ws_save_palette):
         websocket_api.async_register_command(hass, command)
 
 
@@ -120,3 +120,11 @@ def ws_activate_profile(hass: HomeAssistant, connection: websocket_api.ActiveCon
 @callback
 def ws_clear_override(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
     _run(connection, msg, lambda: _scheduler(hass).clear_overrides(msg.get("program_id"), msg.get("entity_id")))
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): PREFIX + "palette/save", vol.Required("palette"): [vol.Coerce(float)]}
+)
+@callback
+def ws_save_palette(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    _run(connection, msg, lambda: _scheduler(hass).save_palette(msg["palette"]))

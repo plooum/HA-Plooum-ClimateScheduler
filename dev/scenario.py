@@ -222,6 +222,14 @@ async def main() -> None:
         r = await c.call("profiles/save", profiles=[{"name": "Other"}])
         check("the default profile cannot be deleted", not r["success"], r)
 
+        r = await c.call("palette/save", palette=[21, 16.5, 19, 21])
+        check("palette saved sorted, without duplicates", r["success"] and r["result"] == [16.5, 19, 21], r)
+        palette = (await c.call("get"))["result"]["config"]["palette"]
+        await c.call("palette/save", palette=[15, 17, 19, 21])
+        check("palette in the config", palette == [16.5, 19, 21], palette)
+        r = await c.call("palette/save", palette=[500])
+        check("an invalid palette is refused", not r["success"], r)
+
         check("subscription events received", len(c.events) > 5, len(c.events))
 
         # Delete: entities gone.

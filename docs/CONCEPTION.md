@@ -28,6 +28,7 @@ Le moteur doit tourner côté serveur (une carte ne s'exécute que quand un tabl
     { "id": "3f9c1a2b7d4e", "name": "Vacances" }
   ],
   "active_profile": "default",
+  "palette": [15, 17, 19, 21],
   "programs": [
     {
       "id": "a1b2c3d4e5f6",
@@ -49,6 +50,7 @@ Le moteur doit tourner côté serveur (une carte ne s'exécute que quand un tabl
 }
 ```
 
+- **Palette** : les températures proposées d'abord par la carte (15, 17, 19, 21 au départ), extensible depuis la carte et commune à toute la maison. Ce n'est qu'un raccourci : un créneau peut prendre n'importe quelle température, et changer la palette ne change aucun créneau.
 - **Profils globaux** : la liste est commune à tous les programmes. Le profil `default` existe toujours (on peut le renommer, pas le supprimer).
 - **Une semaine par profil et par programme**. Si un programme n'a **pas** de semaine pour le profil actif, il utilise sa semaine `default`. Supprimer un profil supprime ses semaines dans tous les programmes ; si c'était le profil actif, `default` le devient.
 - **Fonction en escalier** : chaque point vaut jusqu'au point suivant, il n'y a ni trou ni chevauchement. Le dernier point d'un jour tient jusqu'au premier point du jour suivant ; un jour sans point continue donc la veille. La carte pose toujours un point à `00:00`, mais le moteur ne l'exige pas.
@@ -102,6 +104,7 @@ Les entités d'un programme sont créées / supprimées avec lui ; un appareil p
 | `plooum_climate_scheduler/program/delete` | `program_id` |
 | `plooum_climate_scheduler/profiles/save` | la liste complète des profils (`id` pour les existants, sans `id` pour les nouveaux) |
 | `plooum_climate_scheduler/profile/activate` | `profile_id` |
+| `plooum_climate_scheduler/palette/save` | la liste des températures de la palette (triée, sans doublon) |
 | `plooum_climate_scheduler/override/clear` | `program_id`, `entity_id` facultatifs |
 
 `status` donne par programme : `profile` (la semaine utilisée), `value`, `next_change`, `next_value`, `overrides` (`{entity_id: {value, until}}`).
