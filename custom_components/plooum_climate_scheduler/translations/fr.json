@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Plooum Climate Scheduler",
+        "description": "Programmation hebdomadaire de vos thermostats, avec des profils pour toute la maison. Les programmes et les profils se créent dans la carte de programmation Plooum."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Plooum Climate Scheduler est déjà configuré."
+    }
+  },
+  "entity": {
+    "select": { "profile": { "name": "Profil" } },
+    "switch": { "schedule": { "name": "Programmation" } },
+    "sensor": { "scheduled_temperature": { "name": "Température programmée" } }
+  },
+  "services": {
+    "set_profile": {
+      "name": "Changer de profil",
+      "description": "Passe toute la maison sur un profil (Défaut, Vacances…).",
+      "fields": {
+        "profile": { "name": "Profil", "description": "Nom du profil." }
+      }
+    },
+    "clear_override": {
+      "name": "Annuler la dérogation",
+      "description": "Rend tout de suite leur programmation aux thermostats changés à la main, au lieu d'attendre le prochain créneau.",
+      "fields": {
+        "entity_id": { "name": "Thermostats", "description": "Les thermostats. Vide : tous." }
+      }
+    }
+  }
+}

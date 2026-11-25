@@ -1,0 +1,11 @@
+{
+  "entity": {
+    "select": { "profile": { "default": "mdi:home-thermometer" } },
+    "switch": { "schedule": { "default": "mdi:calendar-clock" } },
+    "sensor": { "scheduled_temperature": { "default": "mdi:thermometer-auto" } }
+  },
+  "services": {
+    "set_profile": { "service": "mdi:home-thermometer" },
+    "clear_override": { "service": "mdi:hand-back-left-off" }
+  }
+}
