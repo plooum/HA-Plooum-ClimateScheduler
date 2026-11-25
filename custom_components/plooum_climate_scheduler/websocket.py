@@ -76,6 +76,7 @@ _PROGRAM = vol.Schema(
         vol.Optional("entities", default=list): [str],
         vol.Optional("enabled", default=True): bool,
         vol.Optional("hvac_mode"): vol.Any(None, str),
+        vol.Optional("self_off", default=False): bool,
         vol.Optional("profiles", default=dict): {str: {str: [_POINT]}},
     }
 )

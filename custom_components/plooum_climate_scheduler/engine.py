@@ -58,23 +58,32 @@ def _observed(state: State) -> Value | None:
     return float(temp) if isinstance(temp, (int, float)) else None
 
 
+def _same_temperature(state: State, temp: Any, value: Value) -> bool:
+    step = state.attributes.get(ATTR_TARGET_TEMP_STEP)
+    tolerance = step / 2 if isinstance(step, (int, float)) and step > 0 else 0.05
+    return abs(float(temp) - float(value)) <= tolerance + 1e-9
+
+
 def _matches(state: State, value: Value) -> bool:
     observed = _observed(state)
     if value == OFF or observed == OFF or observed is None:
         return observed == value
-    step = state.attributes.get(ATTR_TARGET_TEMP_STEP)
-    tolerance = step / 2 if isinstance(step, (int, float)) and step > 0 else 0.05
-    return abs(observed - float(value)) <= tolerance + 1e-9
+    return _same_temperature(state, observed, value)
 
 
 class ProgramRunner:
     """Applies one program's week to its thermostats."""
 
-    def __init__(self, scheduler: Scheduler, program: dict[str, Any], overrides: dict[str, dict]) -> None:
+    def __init__(
+        self, scheduler: Scheduler, program: dict[str, Any], overrides: dict[str, dict], turned_off: set[str] | None = None
+    ) -> None:
         self.scheduler = scheduler
         self.hass = scheduler.hass
         self.program = program
         self.overrides: dict[str, dict[str, Any]] = overrides  # entity -> {value, until: datetime | None}
+        # Thermostats the engine turned off (an off slot) and has to turn back on. With `self_off`, the engine
+        # only turns these on: a thermostat that went off by itself (eco mode, standby) relights by itself.
+        self.turned_off: set[str] = (turned_off or set()) & set(program["entities"])
         self.slot = Slot(None)
         self.profile: str | None = None
         self._contexts: deque[str] = deque(maxlen=64)
@@ -95,6 +104,21 @@ class ProgramRunner:
     @property
     def enabled(self) -> bool:
         return self.program["enabled"]
+
+    @property
+    def self_off(self) -> bool:
+        """The thermostats turn themselves off and on (eco mode, standby): the engine leaves that to them."""
+        return bool(self.program.get("self_off"))
+
+    @callback
+    def _set_turned_off(self, entity: str, off: bool) -> None:
+        if off == (entity in self.turned_off):
+            return
+        if off:
+            self.turned_off.add(entity)
+        else:
+            self.turned_off.discard(entity)
+        self.scheduler.save()
 
     @callback
     def start(self) -> None:
@@ -157,6 +181,7 @@ class ProgramRunner:
             return  # applied when it comes back (_on_state)
         if value == OFF:
             self._commanded[entity] = (OFF, time.monotonic())
+            self._set_turned_off(entity, True)
             if state.state != HVACMode.OFF:
                 await self._call(SERVICE_SET_HVAC_MODE, {ATTR_ENTITY_ID: entity, ATTR_HVAC_MODE: HVACMode.OFF})
             return
@@ -168,12 +193,32 @@ class ProgramRunner:
             temp = float(hi)
         self._commanded[entity] = (temp, time.monotonic())
         data: dict[str, Any] = {ATTR_ENTITY_ID: entity, ATTR_TEMPERATURE: temp}
+        if self._standby(entity, state):
+            # Off by itself: only its target, it relights by itself when needed.
+            current = state.attributes.get(ATTR_TEMPERATURE)
+            if isinstance(current, (int, float)) and _same_temperature(state, current, temp):
+                return
+            await self._call(SERVICE_SET_TEMPERATURE, data)
+            return
         mode = self._on_mode(state)
         if state.state != mode and (state.state == HVACMode.OFF or self.program.get("hvac_mode")):
             data[ATTR_HVAC_MODE] = mode
         elif _matches(state, temp):
             return
         await self._call(SERVICE_SET_TEMPERATURE, data)
+        if ATTR_HVAC_MODE in data:
+            self._set_turned_off(entity, False)
+
+    def _standby(self, entity: str, state: State) -> bool:
+        """Off without the engine having turned it off, on a program whose thermostats do that by themselves."""
+        return self.self_off and state.state == HVACMode.OFF and entity not in self.turned_off
+
+    def _conforms(self, entity: str, state: State, expected: Value) -> bool:
+        """The thermostat follows the schedule (a standby counts as following a temperature slot)."""
+        if expected != OFF and self._standby(entity, state):
+            current = state.attributes.get(ATTR_TEMPERATURE)
+            return not isinstance(current, (int, float)) or _same_temperature(state, current, expected)
+        return _matches(state, expected)
 
     async def _call(self, service: str, data: dict[str, Any]) -> None:
         context = Context()
@@ -195,6 +240,8 @@ class ProgramRunner:
             if entity not in self.overrides:
                 self.hass.async_create_task(self._apply(entity, self.slot.value))
             return
+        if new.state != HVACMode.OFF:
+            self._set_turned_off(entity, False)  # on again, whoever did it
         if new.context.id in self._contexts:
             return
         if old.state == new.state and old.attributes.get(ATTR_TEMPERATURE) == new.attributes.get(ATTR_TEMPERATURE):
@@ -224,12 +271,14 @@ class ProgramRunner:
             return
         commanded = self._commanded.get(entity)
         expected = commanded[0] if commanded else self.slot.value
-        if _matches(state, expected):
+        if self._conforms(entity, state, expected):
             if self.overrides.pop(entity, None) is None:
                 return
             _LOGGER.debug("%s: %s back on schedule", self.program["name"], entity)
         else:
-            self.overrides[entity] = {"value": _observed(state), "until": self.slot.next_change}
+            standby = self._standby(entity, state) and isinstance(state.attributes.get(ATTR_TEMPERATURE), (int, float))
+            value = float(state.attributes[ATTR_TEMPERATURE]) if standby else _observed(state)
+            self.overrides[entity] = {"value": value, "until": self.slot.next_change}
             _LOGGER.debug("%s: %s overridden until %s", self.program["name"], entity, self.slot.next_change)
         self.scheduler.save()
         self.scheduler.notify()
@@ -277,13 +326,14 @@ class Scheduler:
         self.active_profile = data.get("active_profile") if data.get("active_profile") in ids else DEFAULT_PROFILE
         self.palette = data.get("palette", self.palette)
         overrides = data.get("overrides", {})
+        turned_off = data.get("turned_off", {})
         for program in data.get("programs", []):
             saved = {
                 e: {"value": o["value"], "until": dt_util.parse_datetime(o["until"]) if o.get("until") else None}
                 for e, o in overrides.get(program["id"], {}).items()
                 if e in program["entities"]
             }
-            self.runners[program["id"]] = ProgramRunner(self, program, saved)
+            self.runners[program["id"]] = ProgramRunner(self, program, saved, set(turned_off.get(program["id"], [])))
 
     @callback
     def save(self) -> None:
@@ -301,6 +351,7 @@ class Scheduler:
                 for pid, r in self.runners.items()
                 if r.overrides
             },
+            "turned_off": {pid: sorted(r.turned_off) for pid, r in self.runners.items() if r.turned_off},
         }
 
     # ----- lifecycle -----
@@ -379,6 +430,7 @@ class Scheduler:
             "entities": entities,
             "enabled": bool(program.get("enabled", True)),
             "hvac_mode": program.get("hvac_mode") or None,
+            "self_off": bool(program.get("self_off", False)),
             "profiles": profiles,
         }
 
@@ -393,7 +445,8 @@ class Scheduler:
             if old.program["name"] != program["name"]:
                 if device := self._device(program["id"]):
                     dr.async_get(self.hass).async_update_device(device.id, name=program["name"])
-        runner = ProgramRunner(self, program, {})  # saving a program drops its overrides
+        # Saving a program drops its overrides; what the engine turned off stays to turn back on.
+        runner = ProgramRunner(self, program, {}, old.turned_off if old else set())
         self.runners[program["id"]] = runner
         self.save()
         if not old:
