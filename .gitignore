@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.ruff_cache/
+.DS_Store
+.claude/settings.local.json
+.claude/worktrees/
+dev/config/*
+!dev/config/configuration.yaml
+dev/.ha.pid
+dev/.ha-token
+dev/ha.log*
