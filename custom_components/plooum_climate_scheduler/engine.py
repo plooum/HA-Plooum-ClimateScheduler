@@ -39,6 +39,9 @@ DEFAULT_PALETTE = (15.0, 17.0, 19.0, 21.0)
 
 _LOGGER = logging.getLogger(__name__)
 
+# Slot parameters: entity domain -> kind of value (a switch takes a bool, a number a float).
+PARAMETER_DOMAINS = {"switch": "toggle", "input_boolean": "toggle", "number": "number", "input_number": "number"}
+
 # unique_id suffixes of a program's entities, by platform
 PROGRAM_ENTITIES = {"switch": "schedule", "sensor": "scheduled_temperature"}
 
@@ -154,9 +157,36 @@ class ProgramRunner:
             for entity in self.entities:
                 if entity not in self.overrides:
                     self.hass.async_create_task(self._apply(entity, self.slot.value))
+        for param_id, value in self.slot.params.items():
+            param = next((p for p in self.program.get("parameters", []) if p["id"] == param_id), None)
+            if param:
+                self.hass.async_create_task(self._apply_param(param["entity"], value))
         if self.slot.next_change:
             self._unsub_timer = async_track_point_in_time(self.hass, self._on_change, self.slot.next_change)
         self.scheduler.notify()
+
+    async def _apply_param(self, entity: str, value: bool | float) -> None:
+        """Give a slot parameter's entity (eco mode switch, hysteresis number…) its value, if it differs."""
+        state = self.hass.states.get(entity)
+        if _unavailable(state):
+            return
+        domain = entity.split(".", 1)[0]
+        if isinstance(value, bool):
+            if (state.state == "on") != value:
+                await self._call("turn_on" if value else "turn_off", {ATTR_ENTITY_ID: entity}, domain)
+            return
+        number = float(value)
+        lo, hi = state.attributes.get("min"), state.attributes.get("max")
+        if isinstance(lo, (int, float)) and number < lo:
+            number = float(lo)
+        if isinstance(hi, (int, float)) and number > hi:
+            number = float(hi)
+        try:
+            if abs(float(state.state) - number) < 1e-6:
+                return
+        except ValueError:
+            pass
+        await self._call("set_value", {ATTR_ENTITY_ID: entity, "value": number}, domain)
 
     @callback
     def _on_change(self, _now: datetime) -> None:
@@ -220,14 +250,14 @@ class ProgramRunner:
             return not isinstance(current, (int, float)) or _same_temperature(state, current, expected)
         return _matches(state, expected)
 
-    async def _call(self, service: str, data: dict[str, Any]) -> None:
+    async def _call(self, service: str, data: dict[str, Any], domain: str = CLIMATE_DOMAIN) -> None:
         context = Context()
         self._contexts.append(context.id)
-        _LOGGER.debug("%s: climate.%s %s", self.program["name"], service, data)
+        _LOGGER.debug("%s: %s.%s %s", self.program["name"], domain, service, data)
         try:
-            await self.hass.services.async_call(CLIMATE_DOMAIN, service, data, blocking=True, context=context)
+            await self.hass.services.async_call(domain, service, data, blocking=True, context=context)
         except (HomeAssistantError, ValueError) as err:
-            _LOGGER.warning("%s: climate.%s %s failed: %s", self.program["name"], service, data, err)
+            _LOGGER.warning("%s: %s.%s %s failed: %s", self.program["name"], domain, service, data, err)
 
     @callback
     def _on_state(self, event: Event[EventStateChangedData]) -> None:
@@ -296,6 +326,7 @@ class ProgramRunner:
             "value": self.slot.value,
             "next_change": self.slot.next_change.isoformat() if self.slot.next_change else None,
             "next_value": self.slot.next_value,
+            "params": dict(self.slot.params),
             "overrides": {
                 e: {"value": o["value"], "until": o["until"].isoformat() if o["until"] else None}
                 for e, o in self.overrides.items()
@@ -418,12 +449,22 @@ class Scheduler:
             )
             if other:
                 raise ValueError(f"{entity} is already in program {other.program['name']!r}")
+        parameters = self._check_parameters(program.get("parameters") or [])
+        kinds = {p["id"]: PARAMETER_DOMAINS[p["entity"].split(".", 1)[0]] for p in parameters}
         ids = {p["id"] for p in self.profiles}
         profiles = {}
         for profile_id, week in (program.get("profiles") or {}).items():
             if profile_id not in ids:
                 raise ValueError(f"unknown profile {profile_id!r}")
-            profiles[profile_id] = schedule.validate_week(week)
+            week = schedule.validate_week(week)
+            for point in (p for day in week.values() for p in day):
+                params = {k: v for k, v in point.pop("params", {}).items() if k in kinds}  # deleted parameters: dropped
+                for key, value in params.items():
+                    if (kinds[key] == "toggle") != isinstance(value, bool):
+                        raise ValueError(f"parameter {key!r} takes {'on / off' if kinds[key] == 'toggle' else 'a number'}")
+                if params:
+                    point["params"] = params
+            profiles[profile_id] = week
         return {
             "id": program.get("id") or new_id(),
             "name": name,
@@ -431,8 +472,31 @@ class Scheduler:
             "enabled": bool(program.get("enabled", True)),
             "hvac_mode": program.get("hvac_mode") or None,
             "self_off": bool(program.get("self_off", False)),
+            "parameters": parameters,
             "profiles": profiles,
         }
+
+    @staticmethod
+    def _check_parameters(parameters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Slot parameters of a program: entities a slot may also set (switch / input_boolean, number / input_number)."""
+        out: list[dict[str, Any]] = []
+        for param in parameters:
+            entity = param.get("entity")
+            if not isinstance(entity, str) or entity.split(".", 1)[0] not in PARAMETER_DOMAINS or "." not in entity:
+                raise ValueError(f"a parameter is a switch, input_boolean, number or input_number entity: {entity!r}")
+            if any(p["entity"] == entity for p in out):
+                raise ValueError(f"{entity} is twice in the parameters")
+            param_id = param.get("id") or new_id()
+            if any(p["id"] == param_id for p in out):
+                raise ValueError(f"two parameters with the id {param_id!r}")
+            out.append({
+                "id": param_id,
+                "entity": entity,
+                "name": str(param.get("name") or "").strip() or None,
+                "icon": str(param.get("icon") or "").strip() or None,
+                "icon_off": str(param.get("icon_off") or "").strip() or None,
+            })
+        return out
 
     @callback
     def save_program(self, program: dict[str, Any]) -> dict[str, Any]:

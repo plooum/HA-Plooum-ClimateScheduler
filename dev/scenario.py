@@ -73,8 +73,9 @@ def auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
 
 
-def week(points: list[tuple[str, object]]) -> dict:
-    return {d: [{"at": a, "value": v} for a, v in points] for d in DAYS}
+def week(points: list[tuple]) -> dict:
+    """Same points every day: (time, value) or (time, value, parameters)."""
+    return {d: [{"at": p[0], "value": p[1], **({"params": p[2]} if len(p) > 2 else {})} for p in points] for d in DAYS}
 
 
 async def wait_for(client: Client, entity: str, test, timeout: float = 10) -> dict:
@@ -259,6 +260,40 @@ async def main() -> None:
         await asyncio.sleep(2)
         overrides = (await c.call("get"))["result"]["status"][chambres]["overrides"]
         check("self_off: a manual target is still an override", overrides.get("climate.chambre_2", {}).get("value") == 24, overrides)
+
+        # Slot parameters: a switch, a number and an input_boolean set by the slots, values carried on.
+        params = [
+            {"id": "eco", "entity": "switch.stove_eco", "name": "Eco", "icon": "mdi:leaf", "icon_off": "mdi:leaf-off"},
+            {"id": "hyst", "entity": "number.stove_hysteresis", "icon": "mdi:arrow-collapse-down"},
+            {"entity": "input_boolean.boost"},
+        ]
+        base = next(p for p in (await c.call("get"))["result"]["config"]["programs"] if p["id"] == salon)
+        r = await c.call("program/save", program={**base, "parameters": params, "profiles": {"default": week([
+            ("00:00", 18, {"eco": True, "hyst": 2.5}),
+        ])}})
+        check("parameters saved (an id is given to the one without)", r["success"] and len(r["result"]["parameters"]) == 3
+              and r["result"]["parameters"][2]["id"] and r["result"]["parameters"][0]["icon_off"] == "mdi:leaf-off", r)
+        boost = r["result"]["parameters"][2]["id"]
+        s = await wait_for(c, "switch.stove_eco", lambda s: s["state"] == "on")
+        h = await wait_for(c, "number.stove_hysteresis", lambda s: s["state"] == "2.5")
+        check("the slot turns the eco switch on and sets the hysteresis number", s["state"] == "on" and h["state"] == "2.5", [s["state"], h["state"]])
+        snap = (await c.call("get"))["result"]
+        check("status gives the parameters in force", snap["status"][salon]["params"] == {"eco": True, "hyst": 2.5}, snap["status"][salon])
+        r = await c.call("program/save", program={**base, "parameters": r["result"]["parameters"], "profiles": {"default": week([
+            ("00:00", 18, {"eco": True, "hyst": 2.5}), (now.strftime("%H:%M") if now.minute or now.hour else "00:00", 18, {"eco": False, boost: True}),
+        ])}})
+        s = await wait_for(c, "switch.stove_eco", lambda s: s["state"] == "off")
+        b = await wait_for(c, "input_boolean.boost", lambda s: s["state"] == "on")
+        h = await c.state("number.stove_hysteresis")
+        check("a later slot turns eco off and boost on, the hysteresis carries on", s["state"] == "off" and b["state"] == "on" and h["state"] == "2.5", [s["state"], b["state"], h["state"]])
+        r = await c.call("program/save", program={**base, "parameters": params[:1], "profiles": {"default": week([("00:00", 18, {"eco": "yes"})])}})
+        check("a wrong parameter value is refused", not r["success"], r)
+        r = await c.call("program/save", program={**base, "parameters": params[:1], "profiles": {"default": week([("00:00", 18, {"eco": 2})])}})
+        check("a number for a switch is refused", not r["success"], r)
+        r = await c.call("program/save", program={**base, "parameters": [{"entity": "light.kitchen"}]})
+        check("a parameter must be a switch, input_boolean, number or input_number", not r["success"], r)
+        r = await c.call("program/save", program={**base, "parameters": params[:1], "profiles": {"default": week([("00:00", 18, {"eco": True, "gone": 1})])}})
+        check("values of deleted parameters are dropped", r["success"] and r["result"]["profiles"]["default"]["mon"][0]["params"] == {"eco": True}, r)
 
         # Delete: entities gone.
         await c.call("program/delete", program_id=chambres)

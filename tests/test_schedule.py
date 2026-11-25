@@ -117,5 +117,39 @@ class Evaluate(unittest.TestCase):
             self.assertLessEqual(slot.next_change - t, timedelta(hours=10))
 
 
+
+class Parameters(unittest.TestCase):
+    WEEK = {
+        d: [
+            {"at": "00:00", "value": 17, "params": {"eco": True, "hyst": 1.5}},
+            {"at": "08:00", "value": 17, "params": {"eco": False}},
+            {"at": "18:00", "value": 20},
+        ]
+        for d in schedule.DAYS
+    }
+
+    def test_validation(self):
+        week = schedule.validate_week({"mon": [{"at": "06:00", "value": 19, "params": {"eco": True, "hyst": 2}}]})
+        self.assertEqual(week["mon"], [{"at": "06:00", "value": 19.0, "params": {"eco": True, "hyst": 2.0}}])
+        self.assertNotIn("params", schedule.validate_week({"mon": [{"at": "06:00", "value": 19, "params": {}}]})["mon"][0])
+        for bad in ({"eco": "on"}, {"hyst": float("nan")}, ["eco"]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                schedule.validate_week({"mon": [{"at": "06:00", "value": 19, "params": bad}]})
+
+    def test_values_carry_on(self):
+        slot = schedule.evaluate(self.WEEK, at(2026, 11, 23, 19))
+        self.assertEqual(slot.params, {"eco": False, "hyst": 1.5})  # eco from 08:00, hyst from 00:00
+        self.assertEqual(slot.next_change, at(2026, 11, 24, 0))
+
+    def test_a_parameter_alone_is_a_change(self):
+        slot = schedule.evaluate(self.WEEK, at(2026, 11, 23, 1))
+        self.assertEqual((slot.value, slot.next_change, slot.next_value), (17, at(2026, 11, 23, 8), 17))
+        self.assertEqual(slot.params, {"eco": True, "hyst": 1.5})
+
+    def test_carried_round_the_week(self):
+        week = {"mon": [{"at": "06:00", "value": 19}], "sun": [{"at": "22:00", "value": 16, "params": {"eco": True}}]}
+        self.assertEqual(schedule.evaluate(week, at(2026, 11, 23, 7)).params, {"eco": True})
+
+
 if __name__ == "__main__":
     unittest.main()
