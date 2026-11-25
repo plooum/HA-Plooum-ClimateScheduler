@@ -3,11 +3,15 @@
 A week maps day keys (mon..sun) to points {"at": "HH:MM", "value": temperature | "off"}. Each
 point holds until the next one: the last point of a day runs on into the next day, so a day
 without points continues the day before.
+
+A point may also set slot parameters, {"params": {parameter id: bool | number}} (an eco mode
+switch, a hysteresis number…). A parameter's value holds until a later point changes it, round
+the week like the temperature: a point without it keeps the value before.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 import math
 import re
@@ -52,18 +56,33 @@ def validate_value(value: Any) -> Value:
     return round(temp, 2)
 
 
+def validate_param_value(value: Any) -> bool | float:
+    """A slot parameter's value: a bool (switch) or a number."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        return float(value)
+    raise ValueError(f"invalid parameter value {value!r}")
+
+
 def validate_day(points: Any) -> list[dict[str, Any]]:
     if not isinstance(points, list):
         raise ValueError("a day is a list of points")
-    out: dict[int, Value] = {}
+    out: dict[int, dict[str, Any]] = {}
     for point in points:
-        if not isinstance(point, dict) or set(point) - {"at", "value"}:
+        if not isinstance(point, dict) or set(point) - {"at", "value", "params"}:
             raise ValueError(f"invalid point {point!r}")
         at = parse_time(point.get("at"))
         if at in out:
             raise ValueError(f"two points at {format_time(at)}")
-        out[at] = validate_value(point.get("value"))
-    return [{"at": format_time(at), "value": out[at]} for at in sorted(out)]
+        clean: dict[str, Any] = {"at": format_time(at), "value": validate_value(point.get("value"))}
+        params = point.get("params") or {}
+        if not isinstance(params, dict):
+            raise ValueError(f"invalid parameters {params!r}")
+        if params:
+            clean["params"] = {str(k): validate_param_value(v) for k, v in params.items()}
+        out[at] = clean
+    return [out[at] for at in sorted(out)]
 
 
 def validate_week(week: Any) -> dict[str, list[dict[str, Any]]]:
@@ -84,13 +103,23 @@ def resolve_week(profiles: dict[str, Any], profile_id: str) -> tuple[str | None,
     return None, None
 
 
-def week_points(week: dict[str, list[dict[str, Any]]]) -> list[tuple[int, Value]]:
-    """All points of a week as (minute of the week, value), Monday 00:00 = 0."""
-    points = []
+def week_points(week: dict[str, list[dict[str, Any]]]) -> list[tuple[int, Value, dict[str, Any]]]:
+    """All points of a week as (minute of the week, value, parameters in force), Monday 00:00 = 0.
+
+    The parameters in force carry the values set by earlier points, round the week (a value set on
+    Sunday evening still holds on Monday morning)."""
+    raw = []
     for index, day in enumerate(DAYS):
         for point in week.get(day, []):
-            points.append((index * DAY_MINUTES + parse_time(point["at"]), point["value"]))
-    points.sort(key=lambda p: p[0])
+            raw.append((index * DAY_MINUTES + parse_time(point["at"]), point["value"], point.get("params") or {}))
+    raw.sort(key=lambda p: p[0])
+    params: dict[str, Any] = {}
+    points: list[tuple[int, Value, dict[str, Any]]] = []
+    for _ in range(2):  # the second round starts with what the end of the week set
+        points = []
+        for minute, value, own in raw:
+            params = {**params, **own}
+            points.append((minute, value, dict(params)))
     return points
 
 
@@ -107,6 +136,7 @@ class Slot:
     value: Value | None
     next_change: datetime | None = None
     next_value: Value | None = None
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 def evaluate(week: dict[str, list[dict[str, Any]]] | None, now: datetime) -> Slot:
@@ -115,16 +145,29 @@ def evaluate(week: dict[str, list[dict[str, Any]]] | None, now: datetime) -> Slo
     if not points:
         return Slot(None)
     now_minute = now.weekday() * DAY_MINUTES + now.hour * 60 + now.minute
-    current = points[-1][1]  # before the first point of the week: last week's last point
-    for minute, value in points:
+    current, params = points[-1][1], points[-1][2]  # before the first point of the week: last week's last point
+    for minute, value, in_force in points:
         if minute > now_minute:
             break
-        current = value
-    later = [p for p in points if p[0] > now_minute] + [(m + WEEK_MINUTES, v) for m, v in points]
-    for minute, value in later:
-        if not same_value(value, current):
-            return Slot(current, _local(now, minute), value)
-    return Slot(current)
+        current, params = value, in_force
+    later = [p for p in points if p[0] > now_minute] + [(m + WEEK_MINUTES, v, p) for m, v, p in points]
+    for minute, value, in_force in later:
+        if not same_value(value, current) or not same_params(in_force, params):
+            return Slot(current, _local(now, minute), value, params)
+    return Slot(current, params=params)
+
+
+def same_params(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    if set(a) != set(b):
+        return False
+    for key, va in a.items():
+        vb = b[key]
+        if isinstance(va, bool) or isinstance(vb, bool):
+            if va is not vb:
+                return False
+        elif abs(float(va) - float(vb)) > 1e-6:
+            return False
+    return True
 
 
 def _local(now: datetime, week_minute: int) -> datetime:

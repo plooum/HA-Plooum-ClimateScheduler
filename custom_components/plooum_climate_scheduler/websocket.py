@@ -68,7 +68,22 @@ def ws_subscribe(hass: HomeAssistant, connection: websocket_api.ActiveConnection
     forward()
 
 
-_POINT = vol.Schema({vol.Required("at"): str, vol.Required("value"): vol.Any(vol.Coerce(float), "off")})
+_POINT = vol.Schema(
+    {
+        vol.Required("at"): str,
+        vol.Required("value"): vol.Any(vol.Coerce(float), "off"),
+        vol.Optional("params"): {str: vol.Any(bool, vol.Coerce(float))},
+    }
+)
+_PARAMETER = vol.Schema(
+    {
+        vol.Optional("id"): vol.Any(None, str),
+        vol.Required("entity"): str,
+        vol.Optional("name"): vol.Any(None, str),
+        vol.Optional("icon"): vol.Any(None, str),
+        vol.Optional("icon_off"): vol.Any(None, str),
+    }
+)
 _PROGRAM = vol.Schema(
     {
         vol.Optional("id"): vol.Any(None, str),
@@ -77,6 +92,7 @@ _PROGRAM = vol.Schema(
         vol.Optional("enabled", default=True): bool,
         vol.Optional("hvac_mode"): vol.Any(None, str),
         vol.Optional("self_off", default=False): bool,
+        vol.Optional("parameters", default=list): [_PARAMETER],
         vol.Optional("profiles", default=dict): {str: {str: [_POINT]}},
     }
 )

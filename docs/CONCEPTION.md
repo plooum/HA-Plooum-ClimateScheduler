@@ -37,6 +37,10 @@ Le moteur doit tourner côté serveur (une carte ne s'exécute que quand un tabl
       "enabled": true,
       "hvac_mode": null,
       "self_off": false,
+      "parameters": [
+        { "id": "eco", "entity": "switch.poele_eco", "name": "Éco", "icon": "mdi:leaf", "icon_off": "mdi:leaf-off" },
+        { "id": "hyst", "entity": "number.poele_hysteresis", "name": null, "icon": "mdi:arrow-collapse-down", "icon_off": null }
+      ],
       "profiles": {
         "default": {
           "mon": [ { "at": "00:00", "value": 17 }, { "at": "17:00", "value": 21 } ],
@@ -58,6 +62,7 @@ Le moteur doit tourner côté serveur (une carte ne s'exécute que quand un tabl
 - **Valeur** : une température (dans l'unité de HA) ou `"off"` (thermostat éteint : `hvac_mode: off`).
 - **Un thermostat n'appartient qu'à un programme** (refusé à l'enregistrement sinon).
 - `self_off` (faux par défaut, décision du 2026-11-25 pour un poêle en mode éco) : les thermostats du programme s'éteignent et se rallument d'eux-mêmes (veille). Le moteur ne rallume alors que ceux qu'il a éteints lui-même (créneau `off`, mémorisé et persistant) ; un thermostat éteint d'une autre façon ne reçoit que sa consigne au changement de créneau, sans `hvac_mode`, et son passage à éteint n'est pas une dérogation. Une consigne changée à la main reste une dérogation.
+- **Paramètres de créneau** (`parameters`, décision du 2026-11-25) : des entités `switch` / `input_boolean` (valeur vrai / faux) ou `number` / `input_number` (nombre) qu'un créneau règle aussi, par exemple le mode éco et l'hystérésis d'un poêle. Chacun a un `id`, un `name`, une `icon` et, pour un interrupteur, une `icon_off` (sinon l'icône barrée) que la carte affiche en bas des créneaux. Un point les règle par `"params": {"eco": false, "hyst": 1.5}` ; **comme la température, une valeur tient jusqu'au point qui la change**, autour de la semaine : un point sans un paramètre garde sa valeur précédente. Un paramètre seul fait un changement de créneau. Le moteur applique les valeurs en vigueur avec la consigne (`turn_on` / `turn_off`, `set_value` ramené entre `min` et `max`), seulement si elles diffèrent ; il ne surveille pas leurs changements manuels (pas de dérogation), il les remet au créneau suivant. Les valeurs d'un paramètre supprimé sont oubliées ; une valeur du mauvais type est refusée.
 - `hvac_mode` (facultatif) : le mode à mettre quand un créneau en température suit un créneau `off` ou trouve le thermostat éteint. Par défaut : le mode actuel s'il n'est pas `off`, sinon `heat`, `heat_cool` ou `auto` (le premier que le thermostat accepte).
 - Heures `HH:MM` à la minute ; la carte travaille au pas de 15 min.
 
@@ -106,6 +111,7 @@ Les entités d'un programme sont créées / supprimées avec lui ; un appareil p
 | `plooum_climate_scheduler/program/delete` | `program_id` |
 | `plooum_climate_scheduler/profiles/save` | la liste complète des profils (`id` pour les existants, sans `id` pour les nouveaux) |
 | `plooum_climate_scheduler/profile/activate` | `profile_id` |
+| (programme) | `parameters` et `params` des points, voir plus haut ; `status` donne aussi `params`, les valeurs en vigueur |
 | `plooum_climate_scheduler/palette/save` | la liste des températures de la palette (triée, sans doublon) |
 | `plooum_climate_scheduler/override/clear` | `program_id`, `entity_id` facultatifs |
 

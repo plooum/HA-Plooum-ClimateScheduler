@@ -25,11 +25,19 @@ logger:
 # Three fake rooms: a heater (input_boolean) and a temperature (input_number) each, under a
 # generic_thermostat. The temperatures don't move by themselves: set them with the input_numbers.
 input_boolean:
+  # Backing of the fake stove's slot parameters (template switch / number below), and a plain one.
+  stove_eco_backing:
+  boost:
   salon_heater:
   chambre_1_heater:
   chambre_2_heater:
 
 input_number:
+  stove_hysteresis_backing:
+    min: 0
+    max: 3
+    step: 0.5
+    initial: 0.5
   salon_temperature: &temp
     min: 5
     max: 30
@@ -40,6 +48,32 @@ input_number:
   chambre_2_temperature: *temp
 
 template:
+  # Slot parameters of the scenario: a switch (eco mode) and a number (hysteresis), like a pellet stove's.
+  - switch:
+      - name: Stove eco
+        unique_id: stove_eco
+        state: "{{ is_state('input_boolean.stove_eco_backing', 'on') }}"
+        turn_on:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.stove_eco_backing
+        turn_off:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.stove_eco_backing
+  - number:
+      - name: Stove hysteresis
+        unique_id: stove_hysteresis
+        state: "{{ states('input_number.stove_hysteresis_backing') }}"
+        min: 0
+        max: 3
+        step: 0.5
+        set_value:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.stove_hysteresis_backing
+            data:
+              value: "{{ value }}"
   - sensor:
       - name: Salon temperature
         unique_id: salon_temperature
